@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SANSTUDIO 3D INTERACTIVE MODEL SHOWCASE</title>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;600&display=swap" rel="stylesheet">
+    
+    <!-- Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Space Grotesk', 'sans-serif'],
+                        display: ['Rajdhani', 'sans-serif'],
+                    },
+                    colors: {
+                        neon: {
+                            cyan: '#00f3ff',
+                            purple: '#bc13fe',
+                            pink: '#ff007f'
+                        },
+                        glass: 'rgba(15, 23, 42, 0.4)'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- GSAP for UI Animations -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; color: white; }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; pointer-events: none; }
+        
+        /* Enable pointer events only on actual UI panels */
+        .interactive-ui { pointer-events: auto; }
+        
+        /* Glassmorphism utility */
+        .glass-panel {
+            background: linear-gradient(135deg, rgba(20, 20, 30, 0.6) 0%, rgba(10, 10, 15, 0.8) 100%);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { height: 6px; width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 243, 255, 0.3); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0, 243, 255, 0.6); }
+
+        /* Custom Range Slider */
+        input[type=range] {
+            -webkit-appearance: none; width: 100%; background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%;
+            background: #00f3ff; cursor: pointer; margin-top: -6px;
+            box-shadow: 0 0 10px #00f3ff;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.2); border-radius: 2px;
+        }
+
+        /* Neon Glows */
+        .text-glow { text-shadow: 0 0 10px rgba(0, 243, 255, 0.5); }
+        .box-glow:hover { box-shadow: 0 0 15px rgba(0, 243, 255, 0.4); border-color: rgba(0, 243, 255, 0.6); }
+
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed; inset: 0; z-index: 50; background: #050505;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: opacity 1s ease-out;
+        }
+        .loader-ring {
+            width: 80px; height: 80px; border: 3px solid transparent;
+            border-top-color: #00f3ff; border-bottom-color: #bc13fe;
+            border-radius: 50%; animation: spin 1.5s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+
+    <!-- Three.js Import Map -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body class="antialiased selection:bg-neon-cyan selection:text-black">
+
+    <!-- Loading Screen -->
+    <div id="loading-screen">
+        <div class="loader-ring mb-6"></div>
+        <h1 class="font-display text-4xl font-bold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-neon-cyan to-neon-purple text-glow">
+            SANSTUDIO
+        </h1>
+        <p class="text-gray-400 mt-2 tracking-widest text-sm" id="loading-text">INITIALIZING ENGINE...</p>
+    </div>
+
+    <!-- WebGL Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Mobile Overlay -->
+    <div id="mobile-overlay" class="fixed inset-0 bg-black/60 z-30 hidden backdrop-blur-sm transition-opacity opacity-0 duration-300 interactive-ui" onclick="window.closeMobilePanels()"></div>
+
+    <!-- UI Layer -->
+    <div id="ui-layer" class="flex flex-col justify-between p-4 md:p-6 h-full">
+        
+        <!-- Header -->
+        <header class="flex justify-between items-start w-full relative z-40" id="ui-header">
+            <div class="interactive-ui">
+                <h1 class="font-display text-2xl md:text-5xl font-bold tracking-[0.2em] text-transparent bg-clip-text bg-gradient-to-r from-neon-cyan to-white text-glow">
+                    SANSTUDIO
+                </h1>
+                <p class="text-neon-cyan/70 tracking-widest text-[10px] md:text-sm mt-1 uppercase">3D Interactive Model Showcase</p>
+            </div>
+            
+            <div class="interactive-ui flex gap-2 md:gap-3">
+                <button id="btn-toggle-info" class="md:hidden glass-panel p-2 md:p-3 rounded-xl hover:bg-white/10 transition-colors group">
+                    <i class="ph ph-info text-xl text-neon-cyan"></i>
+                </button>
+                <button id="btn-toggle-editor" class="md:hidden glass-panel p-2 md:p-3 rounded-xl hover:bg-white/10 transition-colors group">
+                    <i class="ph ph-sliders text-xl text-neon-pink"></i>
+                </button>
+                <button id="btn-fullscreen" class="glass-panel p-2 md:p-3 rounded-xl hover:bg-white/10 transition-colors group">
+                    <i class="ph ph-corners-out text-xl text-gray-300 group-hover:text-neon-cyan"></i>
+                </button>
+                <button id="btn-focus" class="glass-panel p-2 md:p-3 rounded-xl hover:bg-white/10 transition-colors group" title="Reset Camera">
+                    <i class="ph ph-crosshair text-xl text-gray-300 group-hover:text-neon-cyan"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <div class="flex justify-between items-center w-full flex-1 my-2 md:my-6 overflow-hidden">
+            
+            <!-- Left Panel: Model Info -->
+            <aside class="interactive-ui glass-panel w-full max-w-[calc(100vw-32px)] md:w-80 rounded-2xl p-5 flex flex-col gap-6 max-md:fixed max-md:top-20 max-md:left-4 max-md:bottom-[150px] max-md:z-40 max-md:-translate-x-[150%] max-md:overflow-y-auto transition-transform duration-500 ease-in-out" id="ui-left">
+                <button class="md:hidden absolute top-4 right-4 text-gray-400 hover:text-white transition-colors" onclick="window.closeMobilePanels()"><i class="ph ph-x text-xl"></i></button>
+                <div>
+                    <h2 class="font-display text-xl font-semibold text-white/90 border-b border-white/10 pb-2 mb-4 flex items-center gap-2">
+                        <i class="ph ph-info text-neon-cyan"></i> ASSET DATA
+                    </h2>
+                    <ul class="space-y-3 text-sm">
+                        <li class="flex justify-between text-gray-400"><span class="text-white/60">Name</span> <span id="info-name" class="font-medium text-white text-right">Loading...</span></li>
+                        <li class="flex justify-between text-gray-400"><span class="text-white/60">Polygons</span> <span id="info-poly" class="font-medium text-neon-cyan">0</span></li>
+                        <li class="flex justify-between text-gray-400"><span class="text-white/60">Vertices</span> <span id="info-vert" class="font-medium text-white">0</span></li>
+                        <li class="flex justify-between text-gray-400"><span class="text-white/60">Materials</span> <span id="info-mat" class="font-medium text-white">0</span></li>
+                        <li class="flex justify-between text-gray-400"><span class="text-white/60">Status</span> <span class="font-medium text-green-400">Optimized</span></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h2 class="font-display text-xl font-semibold text-white/90 border-b border-white/10 pb-2 mb-4 flex items-center gap-2">
+                        <i class="ph ph-globe-hemisphere-west text-neon-purple"></i> ENVIRONMENT
+                    </h2>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button class="env-btn active bg-white/10 border border-neon-cyan text-neon-cyan text-xs py-2 rounded-lg transition-all" data-env="studio">STUDIO</button>
+                        <button class="env-btn bg-white/5 border border-transparent hover:border-white/20 text-gray-400 hover:text-white text-xs py-2 rounded-lg transition-all" data-env="cyberpunk">CYBERPUNK</button>
+                        <button class="env-btn bg-white/5 border border-transparent hover:border-white/20 text-gray-400 hover:text-white text-xs py-2 rounded-lg transition-all" data-env="warehouse">WAREHOUSE</button>
+                        <button class="env-btn bg-white/5 border border-transparent hover:border-white/20 text-gray-400 hover:text-white text-xs py-2 rounded-lg transition-all" data-env="outdoor">OUTDOOR</button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Right Panel: Editor -->
+            <aside class="interactive-ui glass-panel w-full max-w-[calc(100vw-32px)] md:w-80 rounded-2xl p-5 flex flex-col gap-6 max-md:fixed max-md:top-20 max-md:right-4 max-md:bottom-[150px] max-md:z-40 max-md:translate-x-[150%] max-md:overflow-y-auto transition-transform duration-500 ease-in-out" id="ui-right">
+                <button class="md:hidden absolute top-4 right-4 text-gray-400 hover:text-white transition-colors" onclick="window.closeMobilePanels()"><i class="ph ph-x text-xl"></i></button>
+                
+                <div>
+                    <h2 class="font-display text-xl font-semibold text-white/90 border-b border-white/10 pb-2 mb-4 flex items-center gap-2">
+                        <i class="ph ph-lightbulb text-yellow-400"></i> LIGHTING STUDIO
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-gray-400"><span>Intensity</span> <span id="val-light">100%</span></div>
+                            <input type="range" id="ctrl-light-intensity" min="0" max="5" step="0.1" value="2">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-gray-400"><span>Main Color</span></div>
+                            <input type="color" id="ctrl-light-color" value="#ffffff" class="w-full h-8 rounded cursor-pointer bg-transparent border-none">
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h2 class="font-display text-xl font-semibold text-white/90 border-b border-white/10 pb-2 mb-4 flex items-center gap-2">
+                        <i class="ph ph-paint-brush text-neon-pink"></i> MATERIAL EDITOR
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-gray-400"><span>Base Color</span></div>
+                            <input type="color" id="ctrl-mat-color" value="#aaaaaa" class="w-full h-8 rounded cursor-pointer bg-transparent border-none">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-gray-400"><span>Metalness</span> <span id="val-metal">50%</span></div>
+                            <input type="range" id="ctrl-mat-metalness" min="0" max="1" step="0.05" value="0.5">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs mb-1 text-gray-400"><span>Roughness</span> <span id="val-rough">50%</span></div>
+                            <input type="range" id="ctrl-mat-roughness" min="0" max="1" step="0.05" value="0.5">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Animation Controls (Hidden by default, shows if model has anims) -->
+                <div id="anim-container" class="hidden">
+                    <h2 class="font-display text-xl font-semibold text-white/90 border-b border-white/10 pb-2 mb-4 flex items-center gap-2">
+                        <i class="ph ph-film-strip text-green-400"></i> ANIMATION
+                    </h2>
+                    <button id="btn-play-anim" class="w-full bg-white/10 hover:bg-white/20 border border-white/20 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                        <i class="ph ph-play"></i> Play Sequence
+                    </button>
+                </div>
+
+            </aside>
+        </div>
+
+        <!-- Footer & Gallery -->
+        <footer class="w-full" id="ui-footer">
+            
+            <!-- Gallery -->
+            <div class="interactive-ui glass-panel rounded-2xl p-4 mb-4">
+                <h3 class="font-display text-sm tracking-widest text-gray-400 mb-3 ml-2"><i class="ph ph-squares-four"></i> ASSET LIBRARY</h3>
+                <div id="model-gallery-container" class="flex gap-4 overflow-x-auto pb-2 scroll-smooth">
+                    <!-- Gallery items will be dynamically injected here by JS -->
+                </div>
+            </div>
+
+            <!-- Credits -->
+            <div class="flex justify-between items-end interactive-ui px-2">
+                <p class="text-xs text-gray-500">Double-click model to focus camera.</p>
+                <a href="https://a-santhosh-hub.github.io/in/" target="_blank" rel="noopener noreferrer" class="text-sm font-display tracking-widest text-gray-400 hover:text-neon-cyan transition-colors flex items-center gap-2 group">
+                    Developed By Santhosh A <i class="ph ph-arrow-up-right group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform"></i>
+                </a>
+            </div>
+        </footer>
+
+    </div>
+
+    <!-- Application Logic -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+        // --- GLOBAL VARIABLES ---
+        let scene, camera, renderer, controls, pmremGenerator, roomEnv;
+        let currentModel, mixer, animationClips;
+        let clock = new THREE.Clock();
+        let particles;
+        let customizableMaterials = [];
+        
+        // Lighting
+        let mainLight, fillLight, backLight;
+
+        // UI Elements
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingText = document.getElementById('loading-text');
+
+        // User's Model List
+        const userModels = [
+            "2022.glb", "AK-47.glb", "Avater.fbx", "car1.glb", "charger.glb",
+            "Digtool.glb", "Dron.glb", "Electric current post.glb", "Fan.glb",
+            "house test.glb", "house test1.glb", "house.glb", "laptop.glb",
+            "Leef_31.glb", "lightouse.glb", "Loptop.glb", "Loptop_001.glb",
+            "MOBIL.glb", "modul.glb", "New_Mobile.glb", "Rocket Launcher.glb",
+            "S24.glb", "safe.glb", "Scall.glb", "sniper.glb", "Sword.glb",
+            "Tank.glb", "THE CLASS.glb"
+        ];
+
+        // --- INITIALIZATION ---
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a0f); // Default Studio background
+            scene.fog = new THREE.FogExp2(0x0a0a0f, 0.015);
+
+            // 2. Camera Setup
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(8, 5, 8);
+
+            // 3. Renderer Setup
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Optimize for high DPI
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.0;
+            container.appendChild(renderer.domElement);
+
+            // 4. Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxDistance = 50;
+            controls.minDistance = 2;
+            controls.target.set(0, 1, 0);
+
+            // 5. Lighting Setup (Default Studio)
+            setupLighting();
+
+            // 6. HDRI/Environment setup
+            pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+            roomEnv = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+            scene.environment = roomEnv;
+
+            // 7. Particles (Background)
+            createParticles();
+
+            // 8. Event Listeners
+            window.addEventListener('resize', onWindowResize);
+            setupUIHandlers();
+            setupRaycaster();
+
+            // 8.5 Build Gallery UI
+            buildGallery();
+
+            // 9. Load Default Model (First in the list)
+            loadModel(userModels[0]);
+
+            // 10. Start Loop
+            animate();
+        }
+
+        function buildGallery() {
+            const galleryContainer = document.getElementById('model-gallery-container');
+            galleryContainer.innerHTML = ''; // Clear out empty state
+            
+            // Loop through the provided list and build cards
+            userModels.forEach(modelFile => {
+                const displayName = modelFile.split('.').slice(0, -1).join('.'); // Remove extension
+                const card = `
+                    <div class="min-w-[140px] md:min-w-[160px] max-w-[140px] md:max-w-[160px] h-20 md:h-24 rounded-xl bg-black/50 border border-white/10 relative overflow-hidden cursor-pointer hover:border-neon-cyan/50 box-glow group transition-all shrink-0" onclick="loadSelectedModel('${modelFile}')">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-10"></div>
+                        <div class="absolute inset-0 flex items-center justify-center text-white/10 group-hover:text-neon-cyan/30 group-hover:scale-110 transition-all duration-500">
+                            <i class="ph ph-cube text-3xl md:text-5xl"></i>
+                        </div>
+                        <div class="absolute bottom-2 left-3 z-20 w-[calc(100%-24px)]">
+                            <p class="font-display font-semibold text-xs md:text-sm text-white group-hover:text-neon-cyan transition-colors truncate" title="${displayName}">${displayName}</p>
+                            <p class="text-[9px] md:text-[10px] text-gray-400 truncate">model/${modelFile}</p>
+                        </div>
+                    </div>
+                `;
+                galleryContainer.insertAdjacentHTML('beforeend', card);
+            });
+
+            // Add the procedural fallback to the very end of the gallery as a backup option
+            const proceduralCard = `
+                <div class="min-w-[140px] md:min-w-[160px] max-w-[140px] md:max-w-[160px] h-20 md:h-24 rounded-xl bg-black/50 border border-neon-purple/30 relative overflow-hidden cursor-pointer hover:border-neon-purple transition-all group shrink-0" onclick="loadSelectedModel('procedural')">
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent z-10"></div>
+                    <div class="absolute inset-0 flex items-center justify-center text-neon-purple opacity-40 group-hover:scale-110 transition-transform duration-500"><i class="ph ph-atom text-3xl md:text-5xl"></i></div>
+                    <div class="absolute bottom-2 left-3 z-20">
+                        <p class="font-display font-semibold text-xs md:text-sm text-white group-hover:text-neon-purple transition-colors">Sci-Fi Core</p>
+                        <p class="text-[9px] md:text-[10px] text-neon-purple/60">Procedural Fallback</p>
+                    </div>
+                </div>
+            `;
+            galleryContainer.insertAdjacentHTML('beforeend', proceduralCard);
+        }
+
+        function setupLighting() {
+            // Ambient
+            scene.add(new THREE.AmbientLight(0xffffff, 0.2));
+
+            // Main Key Light
+            mainLight = new THREE.DirectionalLight(0xffffff, 2.0);
+            mainLight.position.set(5, 10, 7);
+            mainLight.castShadow = true;
+            mainLight.shadow.mapSize.width = 2048;
+            mainLight.shadow.mapSize.height = 2048;
+            mainLight.shadow.camera.near = 0.5;
+            mainLight.shadow.camera.far = 25;
+            mainLight.shadow.bias = -0.001;
+            scene.add(mainLight);
+
+            // Fill Light
+            fillLight = new THREE.DirectionalLight(0x88bbff, 0.8);
+            fillLight.position.set(-5, 3, -5);
+            scene.add(fillLight);
+            
+            // Back/Rim Light
+            backLight = new THREE.PointLight(0xffffff, 1.5, 20);
+            backLight.position.set(0, 5, -8);
+            scene.add(backLight);
+        }
+
+        function createParticles() {
+            const particleCount = 2000;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            const color1 = new THREE.Color(0x00f3ff);
+            const color2 = new THREE.Color(0xbc13fe);
+
+            for(let i = 0; i < particleCount; i++) {
+                // Random position in a large sphere
+                const radius = 20 + Math.random() * 30;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos((Math.random() * 2) - 1);
+                
+                positions[i*3] = radius * Math.sin(phi) * Math.cos(theta);
+                positions[i*3+1] = radius * Math.sin(phi) * Math.sin(theta);
+                positions[i*3+2] = radius * Math.cos(phi);
+
+                // Mix colors
+                const mixedColor = color1.clone().lerp(color2, Math.random());
+                colors[i*3] = mixedColor.r;
+                colors[i*3+1] = mixedColor.g;
+                colors[i*3+2] = mixedColor.b;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+            const material = new THREE.PointsMaterial({
+                size: 0.1,
+                vertexColors: true,
+                transparent: true,
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending
+            });
+
+            particles = new THREE.Points(geometry, material);
+            scene.add(particles);
+        }
+
+        // --- MODEL LOADING ---
+        function loadModel(filename) {
+            // Clear existing model
+            if(currentModel) {
+                scene.remove(currentModel);
+                currentModel.traverse((child) => {
+                    if (child.isMesh) {
+                        child.geometry.dispose();
+                        if(child.material.dispose) child.material.dispose();
+                    }
+                });
+            }
+            if(mixer) {
+                mixer.stopAllAction();
+                mixer = null;
+            }
+            customizableMaterials = [];
+            document.getElementById('anim-container').classList.add('hidden');
+
+            if(filename === 'procedural') {
+                loadingText.innerText = "BUILDING PROCEDURAL ASSET...";
+                setTimeout(() => createProceduralFallback(), 100);
+                return;
+            }
+
+            const isFBX = filename.toLowerCase().endsWith('.fbx');
+            const filePath = `model/${filename}`;
+            loadingText.innerText = `LOADING ${filePath} ...`;
+            
+            try {
+                const loader = isFBX ? new FBXLoader() : new GLTFLoader();
+                
+                loader.load(
+                    filePath, 
+                    function (loadedObject) {
+                        // FBX loader returns the scene directly. GLTF returns an object containing .scene
+                        const modelRoot = isFBX ? loadedObject : loadedObject.scene;
+                        const anims = isFBX ? loadedObject.animations : loadedObject.animations;
+                        
+                        setupLoadedModel(modelRoot, filename, anims);
+                    },
+                    function (xhr) {
+                        let percent = Math.round((xhr.loaded / xhr.total) * 100);
+                        if(!isNaN(percent)) loadingText.innerText = `DOWNLOADING ASSETS... ${percent}%`;
+                    },
+                    function (error) {
+                        console.warn(`Could not load local ${filePath}. Generating AAA Procedural Fallback instead.`);
+                        loadingText.innerText = "LOCAL MODEL NOT FOUND. BUILDING PROCEDURAL CORE...";
+                        setTimeout(() => createProceduralFallback(), 500); 
+                    }
+                );
+            } catch (err) {
+                console.warn("URL parsing error (expected in preview environment). Generating AAA Procedural Fallback instead.", err);
+                loadingText.innerText = "LOCAL MODEL NOT FOUND. BUILDING PROCEDURAL CORE...";
+                setTimeout(() => createProceduralFallback(), 500);
+            }
+        }
+
+        function setupLoadedModel(modelRoot, name, anims) {
+            currentModel = modelRoot;
+            
+            // Process meshes
+            let polyCount = 0;
+            let vertCount = 0;
+            let matCount = new Set();
+
+            // Calculate bounding box to center and scale
+            const box = new THREE.Box3().setFromObject(currentModel);
+            const size = box.getSize(new THREE.Vector3()).length();
+            const center = box.getCenter(new THREE.Vector3());
+
+            // Center model
+            currentModel.position.x += (currentModel.position.x - center.x);
+            currentModel.position.y += (currentModel.position.y - center.y);
+            currentModel.position.z += (currentModel.position.z - center.z);
+            
+            // Scale if it's too big or too small
+            const maxDimension = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
+            if(maxDimension > 10 || maxDimension < 1) {
+                const scale = 5 / maxDimension;
+                currentModel.scale.setScalar(scale);
+            }
+
+            // Adjust model to sit on ground
+            const newBox = new THREE.Box3().setFromObject(currentModel);
+            currentModel.position.y -= newBox.min.y; // Sit on Y=0
+
+            currentModel.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+                    
+                    if(node.geometry) {
+                        polyCount += node.geometry.index ? node.geometry.index.count / 3 : node.geometry.attributes.position.count / 3;
+                        vertCount += node.geometry.attributes.position.count;
+                    }
+
+                    if(node.material) {
+                        matCount.add(node.material.uuid);
+                        // Make materials physically accurate
+                        if(node.material.isMeshStandardMaterial || node.material.isMeshPhysicalMaterial) {
+                            node.material.envMapIntensity = 1.0;
+                            customizableMaterials.push(node.material);
+                        }
+                    }
+                }
+            });
+
+            scene.add(currentModel);
+
+            // Animations
+            if(anims && anims.length > 0) {
+                mixer = new THREE.AnimationMixer(currentModel);
+                animationClips = anims;
+                document.getElementById('anim-container').classList.remove('hidden');
+                
+                // Play first anim by default
+                const action = mixer.clipAction(animationClips[0]);
+                action.play();
+            }
+
+            // Make name display pretty (remove extension)
+            const cleanName = name.split('.').slice(0, -1).join('.');
+            updateModelInfo(cleanName, Math.round(polyCount), vertCount, matCount.size);
+            syncMaterialEditor();
+            finishLoading();
+        }
+
+        function createProceduralFallback() {
+            currentModel = new THREE.Group();
+            
+            // Core Icosahedron
+            const coreGeo = new THREE.IcosahedronGeometry(1, 2);
+            const coreMat = new THREE.MeshPhysicalMaterial({
+                color: 0x00f3ff,
+                emissive: 0x0088aa,
+                emissiveIntensity: 0.5,
+                metalness: 0.9,
+                roughness: 0.1,
+                wireframe: false,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.1
+            });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            core.castShadow = true;
+            core.receiveShadow = true;
+            core.position.y = 2;
+            currentModel.add(core);
+            customizableMaterials.push(coreMat);
+
+            // Outer Wireframe Shell
+            const shellGeo = new THREE.IcosahedronGeometry(1.5, 1);
+            const shellMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                metalness: 0.8,
+                roughness: 0.4,
+                wireframe: true
+            });
+            const shell = new THREE.Mesh(shellGeo, shellMat);
+            shell.position.y = 2;
+            currentModel.add(shell);
+            customizableMaterials.push(shellMat);
+
+            // Orbital Rings
+            const ringGeo = new THREE.TorusGeometry(2.5, 0.05, 16, 100);
+            const ringMat = new THREE.MeshStandardMaterial({ color: 0xbc13fe, metalness: 1, roughness: 0.2 });
+            
+            for(let i=0; i<3; i++) {
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.position.y = 2;
+                ring.rotation.x = Math.random() * Math.PI;
+                ring.rotation.y = Math.random() * Math.PI;
+                ring.userData = { rotationSpeed: { x: (Math.random()-0.5)*0.02, y: (Math.random()-0.5)*0.02 }};
+                currentModel.add(ring);
+                customizableMaterials.push(ringMat);
+            }
+
+            // Pedestal
+            const baseGeo = new THREE.CylinderGeometry(2, 2.5, 0.5, 32);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.6 });
+            const base = new THREE.Mesh(baseGeo, baseMat);
+            base.position.y = 0.25;
+            base.receiveShadow = true;
+            currentModel.add(base);
+
+            scene.add(currentModel);
+            
+            updateModelInfo("Procedural Sci-Fi Core", 4520, 3100, 4);
+            syncMaterialEditor();
+            finishLoading();
+
+            // Add animation to the procedural model in the render loop
+            currentModel.userData.isProcedural = true;
+        }
+
+        function updateModelInfo(name, poly, vert, mat) {
+            document.getElementById('info-name').innerText = name;
+            document.getElementById('info-poly').innerText = poly.toLocaleString();
+            document.getElementById('info-vert').innerText = vert.toLocaleString();
+            document.getElementById('info-mat').innerText = mat;
+        }
+
+        function syncMaterialEditor() {
+            if(customizableMaterials.length > 0) {
+                // Get values from the first custom material
+                const m = customizableMaterials[0];
+                document.getElementById('ctrl-mat-color').value = "#" + m.color.getHexString();
+                document.getElementById('ctrl-mat-metalness').value = m.metalness !== undefined ? m.metalness : 0.5;
+                document.getElementById('ctrl-mat-roughness').value = m.roughness !== undefined ? m.roughness : 0.5;
+                
+                document.getElementById('val-metal').innerText = Math.round(document.getElementById('ctrl-mat-metalness').value * 100) + "%";
+                document.getElementById('val-rough').innerText = Math.round(document.getElementById('ctrl-mat-roughness').value * 100) + "%";
+            }
+        }
+
+        // --- UI & INTERACTIONS ---
+        function setupUIHandlers() {
+            // Environment Switcher
+            document.querySelectorAll('.env-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.env-btn').forEach(b => {
+                        b.classList.remove('active', 'border-neon-cyan', 'text-neon-cyan', 'bg-white/10');
+                        b.classList.add('border-transparent', 'text-gray-400', 'bg-white/5');
+                    });
+                    const target = e.target;
+                    target.classList.remove('border-transparent', 'text-gray-400', 'bg-white/5');
+                    target.classList.add('active', 'border-neon-cyan', 'text-neon-cyan', 'bg-white/10');
+                    setEnvironment(target.dataset.env);
+                });
+            });
+
+            // Lighting Studio
+            document.getElementById('ctrl-light-intensity').addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                mainLight.intensity = val;
+                document.getElementById('val-light').innerText = Math.round((val/5)*100) + "%";
+            });
+            document.getElementById('ctrl-light-color').addEventListener('input', (e) => {
+                mainLight.color.set(e.target.value);
+            });
+
+            // Material Editor
+            document.getElementById('ctrl-mat-color').addEventListener('input', (e) => {
+                const col = new THREE.Color(e.target.value);
+                customizableMaterials.forEach(m => { if(m.color) m.color.copy(col); });
+            });
+            document.getElementById('ctrl-mat-metalness').addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                customizableMaterials.forEach(m => { if(m.metalness !== undefined) m.metalness = val; });
+                document.getElementById('val-metal').innerText = Math.round(val*100) + "%";
+            });
+            document.getElementById('ctrl-mat-roughness').addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                customizableMaterials.forEach(m => { if(m.roughness !== undefined) m.roughness = val; });
+                document.getElementById('val-rough').innerText = Math.round(val*100) + "%";
+            });
+
+            // Animation Play/Pause
+            document.getElementById('btn-play-anim').addEventListener('click', (e) => {
+                if(mixer) {
+                    const btn = e.currentTarget;
+                    const isPlaying = btn.innerHTML.includes('Pause');
+                    if(isPlaying) {
+                        mixer.timeScale = 0;
+                        btn.innerHTML = '<i class="ph ph-play"></i> Play Sequence';
+                        btn.classList.remove('text-neon-cyan', 'border-neon-cyan');
+                    } else {
+                        mixer.timeScale = 1;
+                        btn.innerHTML = '<i class="ph ph-pause"></i> Pause Sequence';
+                        btn.classList.add('text-neon-cyan', 'border-neon-cyan');
+                    }
+                }
+            });
+
+            // Mobile Panels Toggle Logic
+            window.closeMobilePanels = () => {
+                document.getElementById('ui-left').classList.add('max-md:-translate-x-[150%]');
+                document.getElementById('ui-right').classList.add('max-md:translate-x-[150%]');
+                const overlay = document.getElementById('mobile-overlay');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            };
+
+            document.getElementById('btn-toggle-info').addEventListener('click', () => {
+                window.closeMobilePanels();
+                document.getElementById('mobile-overlay').classList.remove('hidden');
+                setTimeout(() => {
+                    document.getElementById('mobile-overlay').classList.remove('opacity-0');
+                    document.getElementById('ui-left').classList.remove('max-md:-translate-x-[150%]');
+                }, 10);
+            });
+
+            document.getElementById('btn-toggle-editor').addEventListener('click', () => {
+                window.closeMobilePanels();
+                document.getElementById('mobile-overlay').classList.remove('hidden');
+                setTimeout(() => {
+                    document.getElementById('mobile-overlay').classList.remove('opacity-0');
+                    document.getElementById('ui-right').classList.remove('max-md:translate-x-[150%]');
+                }, 10);
+            });
+
+            // Fullscreen
+            document.getElementById('btn-fullscreen').addEventListener('click', () => {
+                if (!document.fullscreenElement) {
+                    document.documentElement.requestFullscreen();
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    }
+                }
+            });
+
+            // Camera Focus Reset
+            document.getElementById('btn-focus').addEventListener('click', () => {
+                gsap.to(camera.position, { x: 8, y: 5, z: 8, duration: 1.5, ease: "power3.inOut" });
+                gsap.to(controls.target, { x: 0, y: 1, z: 0, duration: 1.5, ease: "power3.inOut" });
+            });
+
+            // Make loadSelectedModel available globally for HTML onclick
+            window.loadSelectedModel = (type) => {
+                // Show loading slightly
+                gsap.to(loadingScreen, { opacity: 1, display: 'flex', duration: 0.3, onComplete: () => loadModel(type) });
+            };
+        }
+
+        function setEnvironment(type) {
+            // Animate transition slightly
+            const dur = 1;
+            
+            switch(type) {
+                case 'studio':
+                    gsap.to(scene.background, { r: 0.04, g: 0.04, b: 0.06, duration: dur }); // #0a0a0f
+                    scene.fog.color.setHex(0x0a0a0f);
+                    scene.environment = roomEnv;
+                    gsap.to(mainLight, { intensity: 2.0, duration: dur });
+                    mainLight.color.setHex(0xffffff);
+                    gsap.to(fillLight, { intensity: 0.8, duration: dur });
+                    fillLight.color.setHex(0x88bbff);
+                    gsap.to(backLight, { intensity: 1.5, duration: dur });
+                    backLight.color.setHex(0xffffff);
+                    break;
+                case 'cyberpunk':
+                    gsap.to(scene.background, { r: 0.01, g: 0.01, b: 0.02, duration: dur }); // almost black
+                    scene.fog.color.setHex(0x020205);
+                    scene.environment = null; // Harsh lights
+                    gsap.to(mainLight, { intensity: 1.5, duration: dur });
+                    mainLight.color.setHex(0xbc13fe); // Purple
+                    gsap.to(fillLight, { intensity: 2.0, duration: dur });
+                    fillLight.color.setHex(0x00f3ff); // Cyan
+                    gsap.to(backLight, { intensity: 2.5, duration: dur });
+                    backLight.color.setHex(0xff007f); // Pink
+                    break;
+                case 'warehouse':
+                    gsap.to(scene.background, { r: 0.08, g: 0.07, b: 0.06, duration: dur }); // brownish
+                    scene.fog.color.setHex(0x141210);
+                    scene.environment = roomEnv;
+                    gsap.to(mainLight, { intensity: 3.0, duration: dur });
+                    mainLight.color.setHex(0xffaa55); // Warm sodium lamp
+                    gsap.to(fillLight, { intensity: 0.3, duration: dur });
+                    fillLight.color.setHex(0xffffff);
+                    gsap.to(backLight, { intensity: 0.5, duration: dur });
+                    backLight.color.setHex(0x444444);
+                    break;
+                case 'outdoor':
+                    gsap.to(scene.background, { r: 0.5, g: 0.7, b: 0.9, duration: dur }); // Sky blue
+                    scene.fog.color.setHex(0x88bbee);
+                    scene.environment = roomEnv;
+                    gsap.to(mainLight, { intensity: 4.0, duration: dur });
+                    mainLight.color.setHex(0xffffee); // Sun
+                    gsap.to(fillLight, { intensity: 1.5, duration: dur });
+                    fillLight.color.setHex(0x88ccff); // Sky bounce
+                    gsap.to(backLight, { intensity: 0, duration: dur });
+                    break;
+            }
+        }
+
+        function setupRaycaster() {
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+
+            window.addEventListener('dblclick', (event) => {
+                // Calculate mouse position in normalized device coordinates (-1 to +1)
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+
+                if(currentModel) {
+                    const intersects = raycaster.intersectObject(currentModel, true);
+                    if(intersects.length > 0) {
+                        const pt = intersects[0].point;
+                        
+                        // Create a small visual indicator
+                        const indicatorGeo = new THREE.SphereGeometry(0.05, 16, 16);
+                        const indicatorMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, wireframe: true });
+                        const indicator = new THREE.Mesh(indicatorGeo, indicatorMat);
+                        indicator.position.copy(pt);
+                        scene.add(indicator);
+                        
+                        // Animate Indicator
+                        gsap.to(indicator.scale, { x: 3, y: 3, z: 3, duration: 0.5, opacity: 0, ease: "power2.out", onComplete: () => scene.remove(indicator) });
+
+                        // Animate Camera Target
+                        gsap.to(controls.target, {
+                            x: pt.x, y: pt.y, z: pt.z,
+                            duration: 1.5,
+                            ease: "power3.inOut"
+                        });
+                        
+                        // Move camera slightly closer to point
+                        const dir = camera.position.clone().sub(pt).normalize();
+                        const dist = Math.max(2, camera.position.distanceTo(pt) * 0.6); // Zoom in
+                        const newPos = pt.clone().add(dir.multiplyScalar(dist));
+                        
+                        gsap.to(camera.position, {
+                            x: newPos.x, y: newPos.y, z: newPos.z,
+                            duration: 1.5,
+                            ease: "power3.inOut"
+                        });
+                    }
+                }
+            });
+        }
+
+        // --- ANIMATION & RENDER LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // Update OrbitControls
+            controls.update();
+
+            // Update Animation Mixer
+            if (mixer) mixer.update(delta);
+
+            // Animate Particles
+            if(particles) {
+                particles.rotation.y = time * 0.05;
+            }
+
+            // Animate Procedural Model Fallback Rings
+            if(currentModel && currentModel.userData.isProcedural) {
+                // Core pulsing
+                const core = currentModel.children[0];
+                if(core && core.material) {
+                    core.material.emissiveIntensity = 0.5 + Math.sin(time * 2) * 0.3;
+                }
+                
+                // Outer shell spinning
+                const shell = currentModel.children[1];
+                if(shell) {
+                    shell.rotation.y += 0.005;
+                    shell.rotation.x += 0.002;
+                }
+
+                // Rings spinning
+                for(let i=2; i<=4; i++) {
+                    const ring = currentModel.children[i];
+                    if(ring && ring.userData.rotationSpeed) {
+                        ring.rotation.x += ring.userData.rotationSpeed.x;
+                        ring.rotation.y += ring.userData.rotationSpeed.y;
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- INTRO SEQUENCE ---
+        function finishLoading() {
+            // Hide loading screen
+            gsap.to(loadingScreen, { 
+                opacity: 0, 
+                duration: 1, 
+                ease: "power2.inOut",
+                onComplete: () => {
+                    loadingScreen.style.display = 'none';
+                    
+                    // Cinematic Intro Animations
+                    const tl = gsap.timeline();
+                    const isMobile = window.innerWidth < 768;
+                    
+                    // Camera swoop
+                    const startY = camera.position.y;
+                    camera.position.y += 10;
+                    tl.to(camera.position, { y: startY, duration: 2, ease: "power3.out" }, 0);
+
+                    // UI Panels slide in (Modify behavior for mobile so panels stay hidden)
+                    tl.fromTo("#ui-header", { y: -50, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: "power2.out" }, 0.5);
+                    
+                    if(!isMobile) {
+                        tl.fromTo("#ui-left", { x: -50, opacity: 0 }, { x: 0, opacity: 1, duration: 1, ease: "power2.out", clearProps: "transform" }, 0.7);
+                        tl.fromTo("#ui-right", { x: 50, opacity: 0 }, { x: 0, opacity: 1, duration: 1, ease: "power2.out", clearProps: "transform" }, 0.7);
+                    } else {
+                        // Ensure opacity is restored on mobile since panels are initially hidden horizontally via CSS
+                        gsap.set(["#ui-left", "#ui-right"], { opacity: 1 });
+                    }
+                    
+                    tl.fromTo("#ui-footer", { y: 50, opacity: 0 }, { y: 0, opacity: 1, duration: 1, ease: "power2.out" }, 0.9);
+                }
+            });
+        }
+
+        // Start Application
+        window.onload = init;
+
+    </script>
+</body>
+</html>
